@@ -1,4 +1,4 @@
-package cat.jai.innertube.authentication.entities
+package cat.jai.innertube.entities.authentication
 
 class AuthenticationMessage(val type: AuthenticationMessageType, val message: String? = null) {
     companion object {
@@ -16,6 +16,10 @@ class AuthenticationMessage(val type: AuthenticationMessageType, val message: St
 
         fun postCode(code: String): AuthenticationMessage {
             return AuthenticationMessage(AuthenticationMessageType.POST_CODE, code)
+        }
+
+        fun postTime(time: Long): AuthenticationMessage {
+            return AuthenticationMessage(AuthenticationMessageType.POST_TIME, time.toString())
         }
 
     }

@@ -1,21 +1,30 @@
 package cat.jai.innertube.authentication
 
-import cat.jai.innertube.authentication.entities.AuthenticationMessage
-import cat.jai.innertube.authentication.entities.YoutubeAccountAuthenticationDetails
+import cat.jai.innertube.entities.authentication.AuthenticationMessage
+import cat.jai.innertube.entities.authentication.YoutubeAccountAuthenticationDetails
+import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeAsk
+import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeAuthenticationStatus
+import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeAuthenticationSuccess
+import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeRetreive
+import cat.jai.innertube.util.RandUtils
+import cat.jai.innertube.util.getHttpClient
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ChannelIterator
-import kotlinx.coroutines.channels.ChannelResult
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.selects.SelectClause1
+import kotlinx.coroutines.delay
+import kotlinx.datetime.Clock
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.periodUntil
+import kotlinx.datetime.plus
 import kotlin.concurrent.thread
+import kotlin.time.Duration
 
 val SCRIPT_URL_REGEX: Regex = Regex("""<script id="base-js" src="(.*?)" nonce=".*?"></script>""")
 val CLIENT_ID_SECRET_REGEX: Regex = Regex("""clientId:"([-\w]+\.apps\.googleusercontent\.com)",\w+:"(\w+)""")
@@ -28,58 +37,78 @@ const val USER_AGENT: String = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
  * Launches the authentication process for Youtube
  * @return [ReceiveChannel] of [AuthenticationMessage] that will be sent to the caller
  */
-fun launchAuthenticationProcess(callback: suspend (YoutubeAccountAuthenticationDetails) -> Unit): ReceiveChannel<AuthenticationMessage> {
+fun launchAuthenticationProcess(callback: suspend (YoutubeAccountAuthenticationDetails) -> Unit = {}): ReceiveChannel<AuthenticationMessage> {
     val sendChannel = Channel<AuthenticationMessage>()
-    val ret = object : ReceiveChannel<AuthenticationMessage> {
-        @DelicateCoroutinesApi
-        override val isClosedForReceive: Boolean
-            get() = sendChannel.isClosedForReceive
-
-        @ExperimentalCoroutinesApi
-        override val isEmpty: Boolean
-            get() = sendChannel.isEmpty
-        override val onReceive: SelectClause1<AuthenticationMessage>
-            get() = sendChannel.onReceive
-        override val onReceiveCatching: SelectClause1<ChannelResult<AuthenticationMessage>>
-            get() = sendChannel.onReceiveCatching
-
-        override fun cancel(cause: Throwable?): Boolean {
-            sendChannel.cancel(CancellationException(cause?.message, cause))
-            return true
-        }
-
-        override fun cancel(cause: CancellationException?) {
-//            sendChannel.cancel(cause)
-        }
-
-        override fun iterator(): ChannelIterator<AuthenticationMessage> {
-            return sendChannel.iterator()
-        }
-
-        override suspend fun receive(): AuthenticationMessage {
-            return sendChannel.receive()
-        }
-
-        override suspend fun receiveCatching(): ChannelResult<AuthenticationMessage> {
-            return sendChannel.receiveCatching()
-        }
-
-        override fun tryReceive(): ChannelResult<AuthenticationMessage> {
-            return sendChannel.tryReceive()
-        }
-
+    val ret = object : ReceiveChannel<AuthenticationMessage> by sendChannel {
     }
     thread(start = true, isDaemon = true) { suspend {
-        val client = HttpClient()
-        val (client_id, client_secret) = getClientDetails(client, sendChannel)
+        val client = getHttpClient()
+        val (clientId, client_secret) = getClientDetails(client, sendChannel)
+        val deviceId = RandUtils.randUuidString()
+        var authenticated = false
+        while (!authenticated) {
+            val askForCode = DomainTVCodeAsk(
+                clientID = clientId,
+                deviceID = deviceId
+            )
+            val retrieveCode = client.post {
+                url("https://www.youtube.com/o/oauth2/device/code")
+                setBody(askForCode)
+            }.body<DomainTVCodeRetreive>()
 
-        // todo: finish this
+            val codeExpiresTime = Clock.System.now().plus(retrieveCode.expiresIn, DateTimeUnit.SECOND)
+            sendChannel.send(AuthenticationMessage.postCode(retrieveCode.userCode))
+            sendChannel.send(AuthenticationMessage.postTime(codeExpiresTime.toEpochMilliseconds()))
+
+            while (Clock.System.now().toEpochMilliseconds() < codeExpiresTime.toEpochMilliseconds()) {
+
+                delay(retrieveCode.interval * 1000)
+
+                val casRequest = DomainTVCodeAuthenticationStatus(
+                    code = retrieveCode.deviceCode,
+                    clientID = clientId,
+                    clientSecret = client_secret
+                )
+                val casResponse = client.post {
+                    url("https://www.youtube.com/o/oauth2/token")
+                    setBody(casRequest)
+                }
+                try {
+                    val status = casResponse.body<DomainTVCodeAuthenticationSuccess>()
+
+                    val authenticationDetails = YoutubeAccountAuthenticationDetails(
+                        deviceId = deviceId,
+                        expireTime = Clock.System.now().plus(status.expiresIn, DateTimeUnit.SECOND).toEpochMilliseconds(),
+                        accessToken = status.accessToken,
+                        refreshToken = status.refreshToken,
+                        scope = status.scope,
+                        tokenType = status.tokenType
+                    )
+
+                    // TODO: Store authentication details
+
+                    callback(authenticationDetails)
+                    authenticated = true
+                    sendChannel.send(AuthenticationMessage.success())
+                    break
+
+                } catch (e: Exception) {
+                    try {
+                        println("Error: ${e.message}, ${casResponse.bodyAsText()}")
+                    }
+                    catch (e: Exception) {
+                        println("Error: ${e.message}")
+                    }
+                }
+
+            }
+        }
 
     }}
     return ret
 }
 
-suspend fun getClientDetails(client: HttpClient, sendChannel: Channel<AuthenticationMessage>): Pair<String, String> {
+private suspend fun getClientDetails(client: HttpClient, sendChannel: Channel<AuthenticationMessage>): Pair<String, String> {
     val res_yttv = client.get {
         url("https://www.youtube.com/tv")
         header("User-Agent", USER_AGENT)

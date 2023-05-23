@@ -8,9 +8,14 @@ plugins {
 
 kotlin {
     jvmToolchain(11)
-
     android()
-
+    jvm {
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "11"
+            }
+        }
+    }
     sourceSets {
         val commonMain by getting {
             dependencies {
@@ -24,13 +29,23 @@ kotlin {
                 implementation(libs.ktor.serialization.json)
 
                 implementation(libs.kotlinx.coroutines.core)
+                implementation(libs.kotlinx.datetime)
+            }
+        }
+
+
+        val jvmMain by getting {
+            dependencies {
+                implementation(libs.ktor.okhttp)
             }
         }
 
         val androidMain by getting {
             dependencies {
                 implementation(libs.ktor.android)
+
             }
+            dependsOn(jvmMain)
         }
 
         sourceSets.all {
@@ -38,6 +53,8 @@ kotlin {
                 optIn("kotlinx.serialization.ExperimentalSerializationApi")
             }
         }
+
+
     }
 }
 android {
