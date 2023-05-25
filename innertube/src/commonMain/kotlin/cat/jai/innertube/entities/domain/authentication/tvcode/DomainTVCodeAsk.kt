@@ -1,4 +1,4 @@
-package cat.jai.innertube.entities.domain.tvcode
+package cat.jai.innertube.entities.domain.authentication.tvcode
 
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*

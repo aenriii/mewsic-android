@@ -2,10 +2,10 @@ package cat.jai.innertube.authentication
 
 import cat.jai.innertube.entities.authentication.AuthenticationMessage
 import cat.jai.innertube.entities.authentication.YoutubeAccountAuthenticationDetails
-import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeAsk
-import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeAuthenticationStatus
-import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeAuthenticationSuccess
-import cat.jai.innertube.entities.domain.tvcode.DomainTVCodeRetreive
+import cat.jai.innertube.entities.domain.authentication.tvcode.DomainTVCodeAsk
+import cat.jai.innertube.entities.domain.authentication.tvcode.DomainTVCodeAuthenticationStatus
+import cat.jai.innertube.entities.domain.authentication.tvcode.DomainTVCodeAuthenticationSuccess
+import cat.jai.innertube.entities.domain.authentication.tvcode.DomainTVCodeRetreive
 import cat.jai.innertube.util.RandUtils
 import cat.jai.innertube.util.getHttpClient
 import io.ktor.client.HttpClient
@@ -21,10 +21,8 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
-import kotlinx.datetime.periodUntil
 import kotlinx.datetime.plus
 import kotlin.concurrent.thread
-import kotlin.time.Duration
 
 val SCRIPT_URL_REGEX: Regex = Regex("""<script id="base-js" src="(.*?)" nonce=".*?"></script>""")
 val CLIENT_ID_SECRET_REGEX: Regex = Regex("""clientId:"([-\w]+\.apps\.googleusercontent\.com)",\w+:"(\w+)""")
@@ -108,7 +106,7 @@ fun launchAuthenticationProcess(callback: suspend (YoutubeAccountAuthenticationD
     return ret
 }
 
-private suspend fun getClientDetails(client: HttpClient, sendChannel: Channel<AuthenticationMessage>): Pair<String, String> {
+suspend fun getClientDetails(client: HttpClient, sendChannel: Channel<AuthenticationMessage>): Pair<String, String> {
     val res_yttv = client.get {
         url("https://www.youtube.com/tv")
         header("User-Agent", USER_AGENT)

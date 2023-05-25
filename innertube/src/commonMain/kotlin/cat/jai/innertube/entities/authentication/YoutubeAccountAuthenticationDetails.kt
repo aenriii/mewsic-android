@@ -4,11 +4,11 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class YoutubeAccountAuthenticationDetails(
-    val deviceId: String,
-    val expireTime: Long, // unix timestamp
+    var deviceId: String,
+    var expireTime: Long, // unix timestamp
 
-    val accessToken: String,
-    val refreshToken: String,
-    val scope: String,
-    val tokenType: String,
+    var accessToken: String,
+    var refreshToken: String,
+    var scope: String,
+    var tokenType: String,
 )
